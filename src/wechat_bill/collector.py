@@ -15,9 +15,13 @@ from wechat_bill.dedup import match_overlap
 from wechat_bill.device import DeviceController
 from wechat_bill.models import BillRecord
 from wechat_bill.ocr import create_ocr_engine
+from wechat_bill.ocr.base import BaseOCR
 from wechat_bill.parse import parse_records
 
 console = Console()
+
+# OCR 连续这么多屏都没有识别到任何内容就停止（避免对着一个空白/错误页面一直滚动）
+MAX_EMPTY_STREAK = 3
 
 
 def collect_bills(
@@ -26,6 +30,7 @@ def collect_bills(
     end_date: Optional[date] = None,
     device: Optional[DeviceController] = None,
     max_scrolls: Optional[int] = None,
+    ocr: Optional[BaseOCR] = None,
 ) -> List[BillRecord]:
     """主收集循环。支持 Ctrl+C 中断并保留已抓数据。"""
     cfg = settings.collect
@@ -39,11 +44,11 @@ def collect_bills(
             port=settings.device.adb_port,
         )
 
-    ocr = create_ocr_engine(settings.ocr)
+    ocr = ocr or create_ocr_engine(settings.ocr)
     all_records: List[BillRecord] = []
     recent: Deque[List[BillRecord]] = deque(maxlen=2)
     no_new_count = 0
-    skipped_no_parse = 0
+    empty_streak = 0
     current_ym: Optional[Tuple[int, int]] = None
 
     output_dir = Path(settings.output.dir)
@@ -69,8 +74,19 @@ def collect_bills(
 
             blocks = ocr.recognize(img)
             if not blocks:
-                logger.warning("OCR 未识别到内容，跳过本屏")
+                # 空结果也必须继续滚动：不滚动会对同一屏反复截图/OCR，直到用完 max_scrolls
+                empty_streak += 1
+                logger.warning("OCR 未识别到内容（连续 {} 屏）", empty_streak)
+                if empty_streak >= MAX_EMPTY_STREAK:
+                    console.print(
+                        "[red]OCR 连续多屏没有识别到内容，停止。"
+                        "请检查是否停在账单页、OCR 是否正常[/]"
+                    )
+                    break
+                device.swipe_up(screen_height=h, duration_ms=cfg.scroll_duration_ms)
+                time.sleep(cfg.wait_after_scroll)
                 continue
+            empty_streak = 0
 
             view = (h * parse_cfg.list_top_ratio, h - parse_cfg.edge_bottom_px)
             records, current_ym = parse_records(
@@ -96,13 +112,14 @@ def collect_bills(
                     if end_date and r_date > end_date:
                         continue
 
-                if not (r.desc and r.time_str):
-                    skipped_no_parse += 1
-                    continue
+                # 描述或时间没读到的行也保留（parser 已打 flags），交给人工核对；
+                # 直接丢弃会让这笔金额在对账时凭空消失。
                 screen_records.append(r)
 
             # 去重
-            pool = [p for prev in recent for p in prev]
+            # 一条记录连续出现在两屏时，recent 里是同一个对象；按对象去重，
+            # 否则池里有两份，会把紧接着出现的"同分钟同金额"的另一笔真实交易也配掉。
+            pool = list({id(p): p for prev in recent for p in prev}.values())
             pairs = match_overlap(screen_records, pool)
 
             if pool and screen_records and all(p is None for p in pairs):
@@ -154,9 +171,12 @@ def collect_bills(
     except KeyboardInterrupt:
         console.print("\n[yellow]用户中断，保留已抓取的数据...[/]")
 
-    if skipped_no_parse:
+    flagged = [r for r in all_records if r.flags]
+    if flagged:
         console.print(
-            f"[yellow]注意：{skipped_no_parse} 条因描述/时间未识别成功被跳过[/]"
+            f"[yellow]注意：{len(flagged)} 条记录的描述或时间没有识别成功，已保留并标记"
+            "（见输出的「警告」列），请人工核对。这类记录无法可靠去重，"
+            "可能在相邻两屏里重复出现。[/]"
         )
 
     return all_records

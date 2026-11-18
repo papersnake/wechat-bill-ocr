@@ -15,6 +15,8 @@ from wechat_bill.models import BillRecord, Summary
 
 console = Console()
 
+FLAG_TEXT = {"missing_desc": "缺描述", "missing_time": "缺时间"}
+
 
 def summarize(records: List[BillRecord]) -> Summary:
     income = [r for r in records if r.amount > 0]
@@ -85,6 +87,7 @@ def save_results(
                 "datetime": r.dt.isoformat() if r.dt else None,
                 "year_month": r.year_month,
                 "source_screen": r.source_screen,
+                "flags": r.flags,
             }
             for r in records
         ],
@@ -96,7 +99,7 @@ def save_results(
     # CSV（带 BOM，Excel 友好）
     with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["描述", "金额", "时间", "完整时间"])
+        writer.writerow(["描述", "金额", "时间", "完整时间", "警告"])
         for r in records:
             writer.writerow(
                 [
@@ -104,6 +107,7 @@ def save_results(
                     f"{r.amount:.2f}",
                     r.time_str,
                     r.dt.isoformat(sep=" ") if r.dt else "",
+                    "；".join(FLAG_TEXT.get(f, f) for f in r.flags),
                 ]
             )
 
