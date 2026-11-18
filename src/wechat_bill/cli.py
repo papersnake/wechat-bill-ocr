@@ -16,6 +16,7 @@ app = typer.Typer(
     name="wechat-bill",
     help="自动抓取微信账单并导出统计结果",
     add_completion=False,
+    invoke_without_command=True,
 )
 console = Console()
 
@@ -66,8 +67,9 @@ def resolve_date_range(
     return parse(start_date), parse(end_date)
 
 
-@app.command()
-def run(
+@app.callback(invoke_without_command=True)
+def main(
+    ctx: typer.Context,
     months: Optional[int] = typer.Option(None, "--months", "-m", help="统计最近 N 个月"),
     days: Optional[int] = typer.Option(None, "--days", "-d", help="统计最近 N 天（含今天）"),
     today: bool = typer.Option(False, "--today", help="只统计今天"),
@@ -77,8 +79,17 @@ def run(
     max_scrolls: Optional[int] = typer.Option(None, "--max-scrolls", help="最大滚动次数"),
     config: Optional[Path] = typer.Option(None, "--config", "-c", help="配置文件路径"),
     save_screenshots: bool = typer.Option(False, "--save-screenshots", help="保存每屏截图"),
+    version: bool = typer.Option(False, "--version", "-V", help="显示版本"),
 ):
-    """抓取微信账单并导出 CSV/JSON。"""
+    """自动抓取微信账单并导出 CSV/JSON。"""
+    if version:
+        console.print(f"wechat-bill-ocr {__version__}")
+        raise typer.Exit(0)
+
+    # 如果调用了子命令则交给子命令
+    if ctx.invoked_subcommand is not None:
+        return
+
     settings = Settings.load(config)
     if device:
         settings.device.serial = device
@@ -111,18 +122,6 @@ def run(
 
     summary = summarize(records)
     save_results(records, summary, settings.output.dir)
-
-
-@app.command("version")
-def version_cmd():
-    """显示版本。"""
-    console.print(f"wechat-bill-ocr {__version__}")
-
-
-@app.callback()
-def main():
-    """wechat-bill-ocr — 自动抓取微信账单工具"""
-    pass
 
 
 if __name__ == "__main__":
