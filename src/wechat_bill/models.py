@@ -55,6 +55,7 @@ class BillRecord(BaseModel):
     year_month: Optional[tuple[int, int]] = None
     source_screen: int = 0
     raw_desc: str = ""  # 未归一化的描述，方便调试
+    flags: list[str] = Field(default_factory=list)  # 警告标志：missing_desc / missing_time
 
     def normalized_desc(self) -> str:
         import re

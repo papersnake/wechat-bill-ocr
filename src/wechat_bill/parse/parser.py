@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import List, Optional, Tuple
 
 from loguru import logger
@@ -7,6 +8,7 @@ from loguru import logger
 from wechat_bill.config import ParseConfig
 from wechat_bill.models import BillRecord, TextBlock
 from wechat_bill.parse.rules import (
+    MONTH_TITLE_RE,
     is_amount,
     is_time,
     normalize_desc,
@@ -14,6 +16,17 @@ from wechat_bill.parse.rules import (
     parse_time,
     resolve_year,
 )
+
+
+def _is_search_box(text: str) -> bool:
+    """顶部搜索框文案（"Q 查找交易"）。不能用 startswith("Q")，否则 QQ音乐、Q币 等商户会被误丢。"""
+    return bool(re.match(r"^Q\s*查找", text)) or "查找交易" in text
+
+
+def _is_month_title(text: str) -> bool:
+    """月份标题（"2026年11月"，后面可能跟一个下拉箭头）。它不能被当成某一行的描述。"""
+    t = text.strip()
+    return bool(MONTH_TITLE_RE.match(t)) and len(t) <= 12
 
 
 def parse_records(
@@ -43,7 +56,7 @@ def parse_records(
             continue
         if "支出¥" in t or "收入¥" in t:
             continue
-        if t.startswith("Q"):
+        if _is_search_box(t):
             continue
         filtered.append(b)
 
@@ -69,7 +82,7 @@ def parse_records(
         return carry_over or (None, None)
 
     amount_items = [b for b in filtered if is_amount(b.text)]
-    other_items = [b for b in filtered if not is_amount(b.text)]
+    other_items = [b for b in filtered if not is_amount(b.text) and not _is_month_title(b.text)]
 
     for amt in amount_items:
         amt_y = amt.center_y
@@ -129,6 +142,12 @@ def parse_records(
         else:
             amount = -abs(amount)
 
+        flags: List[str] = []
+        if not desc:
+            flags.append("missing_desc")
+        if not time_str:
+            flags.append("missing_time")
+
         records.append(
             BillRecord(
                 desc=desc,
@@ -138,6 +157,7 @@ def parse_records(
                 year_month=(e_year, e_month) if e_year and e_month else None,
                 source_screen=screen_idx,
                 raw_desc=desc,
+                flags=flags,
             )
         )
 
