@@ -20,33 +20,28 @@
 - Android 手机（开启开发者选项 + USB/无线调试）
 - 电脑与手机同一网络（无线调试时）
 
-## 快速安装
+## 最快上手（推荐）
+
+1. 安装 Python 3.11+（安装时勾选 **Add to PATH**）
+2. 把手机用 USB 或无线调试连上电脑，确认 `adb devices` 能看到设备
+3. 打开微信 → 我 → 服务 → 钱包 → 账单，**滚动到最顶部**，保持亮屏
+4. **双击项目根目录的 `一键统计.bat`**
+
+按菜单选择「最近 N 个月 / 今天 / 最近 7 天」即可，结果会自动保存在 `output` 文件夹。
+
+首次运行会自动安装依赖，可能需要几分钟。
+
+---
+
+## 命令行安装（可选）
 
 ```bash
-# 推荐使用 uv
-uv venv
-uv pip install -e .
-
-# 或传统方式
 pip install -e .
 ```
 
 首次运行 RapidOCR 会自动下载模型。
 
-## 使用方法
-
-1. 连接手机：
-
-```bash
-# 无线调试示例
-adb pair <IP>:<配对端口> <配对码>
-adb connect <IP>:<调试端口>
-adb devices
-```
-
-2. 打开微信 → 我 → 服务 → 钱包 → 账单，**滚动到最顶部**，保持亮屏。
-
-3. 运行：
+## 命令行使用
 
 ```bash
 # 最近 2 个月
@@ -68,10 +63,10 @@ wechat-bill --device 192.168.1.5:5555 --months 2
 wechat-bill --months 1 --save-screenshots
 ```
 
-也可以直接：
+也可以：
 
 ```bash
-python -m wechat_bill.cli --months 2
+python -m wechat_bill --months 2
 ```
 
 ## 配置
