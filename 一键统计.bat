@@ -4,35 +4,69 @@ setlocal EnableDelayedExpansion
 
 title wechat-bill-ocr 一键统计
 
+:: 切换到脚本所在目录（项目根目录）
+cd /d "%~dp0"
+
 echo.
 echo  ========================================
 echo    微信账单自动统计  wechat-bill-ocr
 echo  ========================================
 echo.
 
-:: ---------- 检查 Python ----------
-python --version >nul 2>&1
-if errorlevel 1 (
-    echo [错误] 未检测到 Python。
-    echo 请先安装 Python 3.11 或更高版本，并勾选 "Add to PATH"。
-    echo 下载地址: https://www.python.org/downloads/
-    echo.
-    pause
-    exit /b 1
+:: ---------- 优先使用项目 .venv ----------
+set "VENV_PY=.venv\Scripts\python.exe"
+set "VENV_PIP=.venv\Scripts\pip.exe"
+set "PYTHON_CMD="
+set "PIP_CMD="
+
+if exist "%VENV_PY%" (
+    set "PYTHON_CMD=%VENV_PY%"
+    set "PIP_CMD=%VENV_PIP%"
+    echo [OK] 使用项目虚拟环境: .venv
+) else (
+    :: 没有 .venv，尝试系统 Python
+    python --version >nul 2>&1
+    if errorlevel 1 (
+        echo [错误] 未找到 .venv，也未检测到系统 Python。
+        echo.
+        echo 请先在本目录执行:
+        echo   uv venv
+        echo   uv pip install -e .
+        echo.
+        echo 或安装系统 Python 3.11+ 并勾选 Add to PATH。
+        echo.
+        pause
+        exit /b 1
+    )
+    set "PYTHON_CMD=python"
+    set "PIP_CMD=pip"
+    echo [提示] 未找到 .venv，使用系统 Python
+    echo 建议先执行: uv venv ^&^& uv pip install -e .
 )
 
-for /f "tokens=*" %%i in ('python --version 2^>^&1') do set PYVER=%%i
+for /f "tokens=*" %%i in ('"%PYTHON_CMD%" --version 2^>^&1') do set PYVER=%%i
 echo [OK] %PYVER%
 
-:: ---------- 检查 / 安装本项目 ----------
+:: ---------- 检查项目是否已安装到当前 Python ----------
 echo.
 echo 正在检查项目是否已安装...
-pip show wechat-bill-ocr >nul 2>&1
+"%PYTHON_CMD%" -c "import wechat_bill" >nul 2>&1
 if errorlevel 1 (
-    echo 首次运行，正在安装依赖（可能需要几分钟）...
-    pip install -e . -q
+    echo 首次运行或环境不完整，正在安装依赖...
+    if exist "%VENV_PY%" (
+        :: 有 venv 时优先用 uv 安装（更快）
+        where uv >nul 2>&1
+        if not errorlevel 1 (
+            uv pip install -e .
+        ) else (
+            "%PIP_CMD%" install -e .
+        )
+    ) else (
+        "%PIP_CMD%" install -e .
+    )
     if errorlevel 1 (
-        echo [错误] 安装失败，请手动执行: pip install -e .
+        echo [错误] 安装失败。
+        echo 请手动执行: uv venv ^&^& uv pip install -e .
         pause
         exit /b 1
     )
@@ -48,7 +82,6 @@ adb devices >nul 2>&1
 if errorlevel 1 (
     echo [提示] 系统 PATH 中未找到 adb。
     echo 请确保已安装 Android Platform-Tools，或把 adb.exe 所在目录加入 PATH。
-    echo 也可以把 platform-tools 解压到本项目目录下。
     echo.
 ) else (
     echo 当前已连接设备:
@@ -94,7 +127,7 @@ pause
 echo.
 echo 开始抓取最近 %months% 个月的账单...
 echo.
-wechat-bill --months %months%
+"%PYTHON_CMD%" -m wechat_bill --months %months%
 goto after_run
 
 :do_today
@@ -102,12 +135,12 @@ echo.
 echo 请确认手机已打开账单页并滚动到顶部，保持亮屏。
 pause
 echo.
-wechat-bill --today
+"%PYTHON_CMD%" -m wechat_bill --today
 goto after_run
 
 :do_days
 echo.
-wechat-bill --days 7
+"%PYTHON_CMD%" -m wechat_bill --days 7
 goto after_run
 
 :do_range
@@ -118,7 +151,7 @@ echo.
 echo 请确认手机已打开账单页并滚动到顶部，保持亮屏。
 pause
 echo.
-wechat-bill --start-date %start% --end-date %end%
+"%PYTHON_CMD%" -m wechat_bill --start-date %start% --end-date %end%
 goto after_run
 
 :do_check
